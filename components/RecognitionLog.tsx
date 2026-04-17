@@ -1,10 +1,28 @@
 "use client";
 
+import { useEffect } from "react";
 import { useMimirStore } from "@/lib/store";
+import { MOCK_RECOGNITION_LOG } from "@/lib/mockData";
 import { cn } from "@/lib/utils";
 
 export function RecognitionLog() {
   const recognitionLog = useMimirStore((s) => s.recognitionLog);
+  const setActiveFaces = useMimirStore((s) => s.setActiveFaces);
+
+  useEffect(() => {
+    if (recognitionLog.length === 0) {
+      setActiveFaces([]);
+    }
+  }, [recognitionLog.length, setActiveFaces]);
+
+  useEffect(() => {
+    const store = useMimirStore.getState();
+    if (store.recognitionLog.length === 0 && store.activeFaces.length === 0) {
+      for (const entry of MOCK_RECOGNITION_LOG) {
+        store.addLogEntry(entry);
+      }
+    }
+  }, []);
 
   return (
     <div className="card-glass overflow-hidden rounded-2xl">
