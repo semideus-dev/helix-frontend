@@ -18,6 +18,7 @@ import { RecognitionLog } from "@/components/RecognitionLog";
 import { useMimirStore } from "@/lib/store";
 import { MOCK_PEOPLE } from "@/lib/mockData";
 import Link from "next/link";
+import { SignOutButton } from "@/components/SignOutButton";
 
 const PIN_STORAGE_KEY = "mimir-admin-pin";
 const DEFAULT_PIN = "1234";
@@ -195,7 +196,7 @@ export default function AdminPage() {
             ))}
           </nav>
 
-          {/* Right — date + back link */}
+          {/* Right — back link + sign out */}
           <div className="ml-auto flex items-center gap-4">
             <Link
               href="/"
@@ -203,6 +204,7 @@ export default function AdminPage() {
             >
               ← AR View
             </Link>
+            <SignOutButton />
           </div>
         </div>
       </header>

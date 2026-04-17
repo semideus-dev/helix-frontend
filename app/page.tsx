@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { FaceOverlay } from "@/components/FaceOverlay";
 import { VoiceButton } from "@/components/VoiceButton";
 import { StatusPill } from "@/components/StatusPill";
+import { SignOutButton } from "@/components/SignOutButton";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useMimirStore } from "@/lib/store";
 import { MOCK_FACES, MOCK_PEOPLE } from "@/lib/mockData";
@@ -192,8 +193,9 @@ export default function ARPage() {
             Memory Assistant
           </span>
         </div>
-        <div className="pointer-events-auto">
+        <div className="pointer-events-auto flex items-center gap-4">
           <StatusPill />
+          <SignOutButton />
         </div>
       </header>
 
