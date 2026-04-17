@@ -1,65 +1,221 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useRef, useState, useCallback } from "react";
+import { FaceOverlay } from "@/components/FaceOverlay";
+import { VoiceButton } from "@/components/VoiceButton";
+import { StatusPill } from "@/components/StatusPill";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import { useMimirStore } from "@/lib/store";
+import { MOCK_FACES, MOCK_PEOPLE } from "@/lib/mockData";
+
+export default function ARPage() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+
+  const [dimensions, setDimensions] = useState({
+    videoWidth: 1280,
+    videoHeight: 720,
+    containerWidth: typeof window !== "undefined" ? window.innerWidth : 1280,
+    containerHeight: typeof window !== "undefined" ? window.innerHeight : 720,
+  });
+
+  const activeFaces = useMimirStore((s) => s.activeFaces);
+  const wsStatus = useMimirStore((s) => s.wsStatus);
+  const { setActiveFaces, setEnrolledPeople } = useMimirStore();
+  const primaryFaceId = activeFaces[0]?.id;
+
+  // Seed mock data on load so cards are visible immediately
+  useEffect(() => {
+    setEnrolledPeople(MOCK_PEOPLE);
+  }, [setEnrolledPeople]);
+
+  // Inject mock faces once camera is ready and WS hasn't taken over
+  useEffect(() => {
+    if (!cameraReady) return;
+    // Only use mock faces if WS hasn't delivered real data
+    if (wsStatus !== "open") {
+      const t = setTimeout(() => {
+        setActiveFaces(MOCK_FACES);
+      }, 800);
+      return () => clearTimeout(t);
+    }
+  }, [cameraReady, wsStatus, setActiveFaces]);
+
+  // When WS goes offline again, restore mock faces
+  useEffect(() => {
+    if (wsStatus === "closed" && cameraReady) {
+      setActiveFaces(MOCK_FACES);
+    }
+  }, [wsStatus, cameraReady, setActiveFaces]);
+
+  // Connect WebSocket — pass canvasRef for frame sampling
+  useWebSocket(canvasRef);
+
+  // Draw video frames to canvas
+  const drawFrame = useCallback(() => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState < 2) {
+      animFrameRef.current = requestAnimationFrame(drawFrame);
+      return;
+    }
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Mirror the feed
+    ctx.save();
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, w, h);
+    ctx.restore();
+
+    animFrameRef.current = requestAnimationFrame(drawFrame);
+  }, []);
+
+  // Start webcam
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+          audio: false,
+        });
+
+        const video = videoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        await video.play();
+
+        const vw = video.videoWidth || 1280;
+        const vh = video.videoHeight || 720;
+        const cw = window.innerWidth;
+        const ch = window.innerHeight;
+
+        if (canvasRef.current) {
+          canvasRef.current.width = cw;
+          canvasRef.current.height = ch;
+        }
+
+        setDimensions({ videoWidth: vw, videoHeight: vh, containerWidth: cw, containerHeight: ch });
+        animFrameRef.current = requestAnimationFrame(drawFrame);
+        setCameraReady(true);
+      } catch {
+        // Camera not available — still show mock faces on a dark background
+        console.warn("Camera unavailable — showing mock overlay");
+        if (canvasRef.current) {
+          canvasRef.current.width = window.innerWidth;
+          canvasRef.current.height = window.innerHeight;
+        }
+        setDimensions({
+          videoWidth: 1280,
+          videoHeight: 720,
+          containerWidth: window.innerWidth,
+          containerHeight: window.innerHeight,
+        });
+        setCameraReady(true);
+      }
+    }
+
+    startCamera();
+
+    const handleResize = () => {
+      if (canvasRef.current) {
+        canvasRef.current.width = window.innerWidth;
+        canvasRef.current.height = window.innerHeight;
+      }
+      setDimensions((d) => ({
+        ...d,
+        containerWidth: window.innerWidth,
+        containerHeight: window.innerHeight,
+      }));
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, [drawFrame]);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="fixed inset-0 overflow-hidden bg-[#020810]">
+      {/* Hidden video element — source for canvas drawing */}
+      <video
+        ref={videoRef}
+        className="pointer-events-none absolute opacity-0"
+        playsInline
+        muted
+        aria-hidden="true"
+      />
+
+      {/* Full-viewport mirrored canvas — the actual visible feed */}
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 h-full w-full"
+        style={{ display: "block" }}
+      />
+
+      {/* Subtle vignette overlay */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, transparent 40%, rgba(2,8,16,0.55) 100%)",
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Scanning line */}
+      <div
+        className="scan-line pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[rgba(120,200,255,0.35)] to-transparent"
+        aria-hidden="true"
+      />
+
+      {/* Top bar */}
+      <header className="pointer-events-none fixed inset-x-0 top-0 z-40 flex items-center justify-between px-6 py-5">
+        <div className="flex items-center gap-2.5">
+          <span className="font-mono text-base font-medium tracking-[0.22em] text-white/90">
+            Mimir
+          </span>
+          <span className="h-px w-6 bg-[rgba(120,200,255,0.25)]" />
+          <span className="font-mono text-[9px] uppercase tracking-widest text-white/30">
+            Memory Assistant
+          </span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="pointer-events-auto">
+          <StatusPill />
         </div>
-      </main>
+      </header>
+
+      {/* Admin link — bottom right */}
+      <a
+        href="/admin"
+        className="fixed bottom-8 right-8 z-50 flex items-center gap-1.5 font-mono text-[10px] tracking-widest text-white/20 transition-colors hover:text-white/50"
+      >
+        Caregiver Panel
+        <span className="text-[8px]">→</span>
+      </a>
+
+      {/* Face overlay */}
+      <FaceOverlay
+        videoWidth={dimensions.videoWidth}
+        videoHeight={dimensions.videoHeight}
+        containerWidth={dimensions.containerWidth}
+        containerHeight={dimensions.containerHeight}
+      />
+
+      {/* Voice button */}
+      <VoiceButton currentPersonId={primaryFaceId} />
     </div>
   );
 }
