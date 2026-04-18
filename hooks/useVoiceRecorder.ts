@@ -3,12 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useMimirStore } from "@/lib/store";
+import { getMockResponse } from "@/lib/mockChatResponses";
+import { useChatStore } from "@/store/useChatStore";
 import { useAuthStore } from "@/store/useAuthStore";
 import type { TranscriptSegment, VoiceSessionPayload, VoiceStatus } from "@/types/voice";
 
 export const SILENCE_TIMEOUT_MS = 3000;
 const NETWORK_RETRY_DELAY_MS = 750;
 const MAX_NETWORK_RETRIES = 3;
+const CHAT_TRIGGER = "open chat";
+const CLOSE_TRIGGER = "close chat";
+const CHAT_TRIGGER_REGEX = /open chat/gi;
+const CLOSE_TRIGGER_REGEX = /close chat/gi;
 
 // ---------------------------------------------------------------------------
 // Stub dispatcher — swap with real fetch when API is ready
@@ -76,6 +82,7 @@ export function useVoiceRecorder() {
   const setInterim = useCallback((value: string) => {
     interimTextRef.current = value;
     setInterimText(value);
+    useMimirStore.getState().setInterimVoiceText(value);
   }, []);
 
   // ── Cleanup ───────────────────────────────────────────────────────────────
@@ -97,6 +104,7 @@ export function useVoiceRecorder() {
     startedAtRef.current = "";
     sessionStartRef.current = 0;
     networkRetryCountRef.current = 0;
+    useMimirStore.getState().setInterimVoiceText("");
   }, [setInterim, updateStatus]);
 
   // ── Session assembly ──────────────────────────────────────────────────────
@@ -147,6 +155,7 @@ export function useVoiceRecorder() {
 
   // ── Auto-stop (silence timeout fires) ────────────────────────────────────
   const handleAutoStop = useCallback(() => {
+    if (useChatStore.getState().isOpen) return;
     logVoice("auto-stop triggered");
     isSessionActiveRef.current = false;
     recognitionRef.current?.stop();
@@ -162,6 +171,8 @@ export function useVoiceRecorder() {
 
   // ── Silence timer reset (call on every speech result) ────────────────────
   const resetSilenceTimer = useCallback(() => {
+    const chatOpen = useChatStore.getState().isOpen;
+    if (chatOpen) return;
     if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
     if (countdownIntervalRef.current !== null) clearInterval(countdownIntervalRef.current);
 
@@ -265,9 +276,36 @@ export function useVoiceRecorder() {
             confidence,
             timestamp: new Date().toISOString(),
           };
-          finalSegmentsRef.current = [...finalSegmentsRef.current, segment];
-          setFinalSegments([...finalSegmentsRef.current]);
-          logVoice("final segment", segment);
+          let segmentText = segment.text;
+          const clean = segmentText.toLowerCase().trim();
+
+          if (clean.includes(CHAT_TRIGGER)) {
+            useChatStore.getState().openChat();
+            segmentText = segmentText.replace(CHAT_TRIGGER_REGEX, "").trim();
+          }
+
+          if (useChatStore.getState().isOpen && clean.includes(CLOSE_TRIGGER)) {
+            useChatStore.getState().closeChat();
+            segmentText = segmentText.replace(CLOSE_TRIGGER_REGEX, "").trim();
+          }
+
+          segment.text = segmentText;
+          if (!segment.text) continue;
+
+          const chatOpen = useChatStore.getState().isOpen;
+          if (chatOpen) {
+            useChatStore.getState().addMessage("user", segment.text);
+            useChatStore.getState().setThinking(true);
+            setTimeout(() => {
+              useChatStore.getState().addMessage("assistant", getMockResponse(segment.text));
+              useChatStore.getState().setThinking(false);
+            }, 1200 + Math.random() * 800);
+            logVoice("chat segment", segment);
+          } else {
+            finalSegmentsRef.current = [...finalSegmentsRef.current, segment];
+            setFinalSegments([...finalSegmentsRef.current]);
+            logVoice("final segment", segment);
+          }
         } else {
           interim += text;
         }
@@ -439,14 +477,29 @@ export function useVoiceRecorder() {
 
   // ── Unmount cleanup ───────────────────────────────────────────────────────
   useEffect(() => {
+    const unsubscribe = useChatStore.subscribe((state, prevState) => {
+      if (!prevState.isOpen && state.isOpen) {
+        if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
+        if (countdownIntervalRef.current !== null) clearInterval(countdownIntervalRef.current);
+        silenceTimerRef.current = null;
+        countdownIntervalRef.current = null;
+        setSilenceCountdown(null);
+      }
+
+      if (prevState.isOpen && !state.isOpen && isSessionActiveRef.current) {
+        resetSilenceTimer();
+      }
+    });
+
     return () => {
+      unsubscribe();
       isSessionActiveRef.current = false;
       recognitionRef.current?.stop();
       if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
       if (countdownIntervalRef.current !== null) clearInterval(countdownIntervalRef.current);
       if (networkRetryTimerRef.current !== null) clearTimeout(networkRetryTimerRef.current);
     };
-  }, []);
+  }, [resetSilenceTimer]);
 
   return {
     isListening,

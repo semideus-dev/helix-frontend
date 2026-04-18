@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { FaceOverlay } from "@/components/FaceOverlay";
 import { VoiceButton } from "@/components/VoiceButton";
+import { ChatPanel } from "@/components/ChatPanel";
 import { StatusPill } from "@/components/StatusPill";
 import { SignOutButton } from "@/components/SignOutButton";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -181,6 +182,8 @@ export default function ARPage() {
         className="scan-line pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[rgba(120,200,255,0.35)] to-transparent"
         aria-hidden="true"
       />
+
+      <ChatPanel />
 
       {/* Top bar */}
       <header className="pointer-events-none fixed inset-x-0 top-0 z-40 flex items-center justify-between px-6 py-5">

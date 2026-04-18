@@ -10,6 +10,7 @@ interface MimirState {
   lastVoiceResponse: string | null;
   recognitionLog: LogEntry[];
   voiceStatus: VoiceStatus;
+  interimVoiceText: string;
   lastSession: VoiceSessionPayload | null;
 
   setWsStatus: (status: WsStatus) => void;
@@ -21,6 +22,7 @@ interface MimirState {
   setLastVoiceResponse: (response: string | null) => void;
   addLogEntry: (entry: LogEntry) => void;
   setVoiceStatus: (s: VoiceStatus) => void;
+  setInterimVoiceText: (text: string) => void;
   setLastSession: (p: VoiceSessionPayload) => void;
 }
 
@@ -32,6 +34,7 @@ export const useMimirStore = create<MimirState>((set) => ({
   lastVoiceResponse: null,
   recognitionLog: [],
   voiceStatus: "idle",
+  interimVoiceText: "",
   lastSession: null,
 
   setWsStatus: (status) => set({ wsStatus: status }),
@@ -74,6 +77,8 @@ export const useMimirStore = create<MimirState>((set) => ({
     })),
 
   setVoiceStatus: (s) => set({ voiceStatus: s }),
+
+  setInterimVoiceText: (text) => set({ interimVoiceText: text }),
 
   setLastSession: (p) => set({ lastSession: p }),
 }));

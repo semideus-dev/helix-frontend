@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useMimirStore } from "@/lib/store";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import { cn } from "@/lib/utils";
+import { useChatStore } from "@/store/useChatStore";
 import type { VoiceStatus } from "@/types/voice";
 
 const WAVE_DELAYS = ["0s", "0.1s", "0.2s", "0.1s", "0s"];
@@ -30,7 +31,9 @@ export function VoiceButton({ currentPersonId: _currentPersonId }: VoiceButtonPr
     interimText,
     silenceCountdown,
     toggleSession,
+    stopSession,
   } = useVoiceRecorder();
+  const { isOpen: chatOpen, closeChat } = useChatStore();
 
   const lastSession = useMimirStore((s) => s.lastSession);
 
@@ -66,8 +69,7 @@ export function VoiceButton({ currentPersonId: _currentPersonId }: VoiceButtonPr
     };
   }, []);
 
-  const showTooltip =
-    status !== "idle" || summary !== null;
+  const showTooltip = !chatOpen && (status !== "idle" || summary !== null);
 
   // Waveform freezes during silence / processing
   const waveformActive = status === "listening" || status === "speaking";
@@ -83,6 +85,14 @@ export function VoiceButton({ currentPersonId: _currentPersonId }: VoiceButtonPr
   })();
 
   const tooltipAmber = status === "silence";
+  const handleButtonClick = () => {
+    if (chatOpen) {
+      closeChat();
+      stopSession();
+      return;
+    }
+    toggleSession();
+  };
 
   return (
     <div className="fixed bottom-8 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-3">
@@ -128,7 +138,7 @@ export function VoiceButton({ currentPersonId: _currentPersonId }: VoiceButtonPr
       {/* Mic button */}
       <Button
         size="icon"
-        onClick={toggleSession}
+        onClick={handleButtonClick}
         disabled={!isSupported || status === "processing"}
         aria-label={isListening ? "Stop listening" : "Start voice input"}
         className={cn(
@@ -137,7 +147,7 @@ export function VoiceButton({ currentPersonId: _currentPersonId }: VoiceButtonPr
           status === "silence" && "border-[rgba(255,180,60,0.5)]"
         )}
         style={{
-          borderColor: borderForStatus(status),
+          borderColor: chatOpen ? "rgba(60,220,120,0.5)" : borderForStatus(status),
         }}
       >
         {status === "processing" ? (
