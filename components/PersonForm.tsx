@@ -19,20 +19,32 @@ import type { Person } from "@/types";
 import { cn } from "@/lib/utils";
 
 const RELATIONSHIPS = [
-  "Daughter",
-  "Son",
-  "Spouse",
-  "Doctor",
-  "Nurse",
-  "Friend",
-  "Caregiver",
-  "Other",
+  "daughter",
+  "son",
+  "spouse",
+  "doctor",
+  "nurse",
+  "friend",
+  "caregiver",
+  "family",
+  "colleague",
+  "other",
 ];
 
 interface PersonFormProps {
   prefill?: Partial<Person>;
   onSuccess?: () => void;
 }
+
+// Helper function to convert File to base64
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+  });
+};
 
 export function PersonForm({ prefill, onSuccess }: PersonFormProps) {
   const [name, setName] = useState(prefill?.name ?? "");
@@ -59,22 +71,38 @@ export function PersonForm({ prefill, onSuccess }: PersonFormProps) {
     if (file?.type.startsWith("image/")) handlePhotoChange(file);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!name.trim() || !relationship) {
       toast.error("Name and relationship are required.");
       return;
     }
 
+    if (!photo && !prefill?.photoUrl) {
+      toast.error("Photo is required.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const formData = new FormData();
-      formData.append("name", name.trim());
-      formData.append("relationship", relationship);
-      formData.append("note", note.trim());
-      if (photo) formData.append("photo", photo);
+      // Convert photo to base64
+      let photoBase64 = prefill?.photoUrl || null;
+      if (photo) {
+        photoBase64 = await fileToBase64(photo);
+      }
 
-      const res = await fetch("/api/enrol", { method: "POST", body: formData });
+      // Send as JSON instead of FormData
+      const res = await fetch("/api/enrol", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          relationship: relationship.toLowerCase(),
+          note: note.trim(),
+          photo: photoBase64,
+        }),
+      });
+
       const data = await res.json();
 
       if (!res.ok || !data.success) throw new Error(data.error ?? "Failed to enrol person");
@@ -84,7 +112,7 @@ export function PersonForm({ prefill, onSuccess }: PersonFormProps) {
         name: data.name,
         relationship: data.relationship,
         note: data.note,
-        photoUrl: photoPreview ?? undefined,
+        photoUrl: photoBase64 ?? undefined,
       };
 
       addEnrolledPerson(newPerson);
@@ -137,7 +165,7 @@ export function PersonForm({ prefill, onSuccess }: PersonFormProps) {
                 <SelectContent>
                   {RELATIONSHIPS.map((r) => (
                     <SelectItem key={r} value={r}>
-                      {r}
+                      {r.charAt(0).toUpperCase() + r.slice(1)}
                     </SelectItem>
                   ))}
                 </SelectContent>

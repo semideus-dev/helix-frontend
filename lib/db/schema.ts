@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, index, pgEnum, uuid } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -91,3 +91,27 @@ export const accountRelations = relations(account, ({ one }) => ({
     references: [user.id],
   }),
 }));
+
+// Relations table for enrolled people
+export const relationEnum = pgEnum("relation_type", [
+  "friend",
+  "family",
+  "colleague",
+  "daughter",
+  "son",
+  "doctor",
+  "nurse",
+  "caregiver",
+  "spouse",
+  "other",
+]);
+
+export const relationsTable = pgTable("relations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull(),
+  name: text("name").notNull(),
+  relation: relationEnum("relation").notNull(),
+  photo: text("photo").notNull(),
+  memoryNote: text("memory_note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

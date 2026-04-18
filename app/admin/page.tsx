@@ -126,11 +126,34 @@ export default function AdminPage() {
   const [unlocked, setUnlocked] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminTab>("people");
   const { enrolledPeople, setEnrolledPeople, recognitionLog } = useMimirStore();
+  const [loading, setLoading] = useState(false);
 
-  // Seed mock data
+  // Fetch enrolled people from database
   useEffect(() => {
-    if (enrolledPeople.length === 0) setEnrolledPeople(MOCK_PEOPLE);
-  }, [enrolledPeople.length, setEnrolledPeople]);
+    const fetchPeople = async () => {
+      if (!unlocked) return;
+      
+      setLoading(true);
+      try {
+        const res = await fetch("/api/people");
+        const data = await res.json();
+        
+        if (data.success && data.people) {
+          setEnrolledPeople(data.people);
+        }
+      } catch (error) {
+        console.error("Failed to fetch people:", error);
+        // Fallback to mock data if fetch fails
+        if (enrolledPeople.length === 0) {
+          setEnrolledPeople(MOCK_PEOPLE);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPeople();
+  }, [unlocked, setEnrolledPeople]);
 
   // Restore session unlock
   useEffect(() => {
