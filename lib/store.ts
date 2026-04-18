@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Face, Person, LogEntry, WsStatus } from "@/types";
+import type { VoiceSessionPayload, VoiceStatus } from "@/types/voice";
 
 interface MimirState {
   wsStatus: WsStatus;
@@ -8,6 +9,8 @@ interface MimirState {
   isListening: boolean;
   lastVoiceResponse: string | null;
   recognitionLog: LogEntry[];
+  voiceStatus: VoiceStatus;
+  lastSession: VoiceSessionPayload | null;
 
   setWsStatus: (status: WsStatus) => void;
   setActiveFaces: (faces: Face[]) => void;
@@ -17,6 +20,8 @@ interface MimirState {
   setIsListening: (listening: boolean) => void;
   setLastVoiceResponse: (response: string | null) => void;
   addLogEntry: (entry: LogEntry) => void;
+  setVoiceStatus: (s: VoiceStatus) => void;
+  setLastSession: (p: VoiceSessionPayload) => void;
 }
 
 export const useMimirStore = create<MimirState>((set) => ({
@@ -26,6 +31,8 @@ export const useMimirStore = create<MimirState>((set) => ({
   isListening: false,
   lastVoiceResponse: null,
   recognitionLog: [],
+  voiceStatus: "idle",
+  lastSession: null,
 
   setWsStatus: (status) => set({ wsStatus: status }),
 
@@ -65,4 +72,8 @@ export const useMimirStore = create<MimirState>((set) => ({
     set((state) => ({
       recognitionLog: [entry, ...state.recognitionLog].slice(0, 50),
     })),
+
+  setVoiceStatus: (s) => set({ voiceStatus: s }),
+
+  setLastSession: (p) => set({ lastSession: p }),
 }));

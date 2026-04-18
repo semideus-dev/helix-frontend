@@ -1,135 +1,103 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useMimirStore } from "@/lib/store";
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import { cn } from "@/lib/utils";
+import type { VoiceStatus } from "@/types/voice";
 
-// Waveform bar heights (animation-delay steps)
 const WAVE_DELAYS = ["0s", "0.1s", "0.2s", "0.1s", "0s"];
 
 interface VoiceButtonProps {
   currentPersonId?: string;
 }
 
-export function VoiceButton({ currentPersonId }: VoiceButtonProps) {
-  const [transcript, setTranscript] = useState("");
-  const [showTooltip, setShowTooltip] = useState(false);
-  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+// Map status → border colour class (applied via inline style to avoid Tailwind purge)
+function borderForStatus(status: VoiceStatus): string {
+  if (status === "listening" || status === "speaking") return "rgba(120,200,255,0.35)";
+  if (status === "silence") return "rgba(255,180,60,0.5)";
+  return "transparent";
+}
 
-  const isListening = useMimirStore((s) => s.isListening);
-  const lastVoiceResponse = useMimirStore((s) => s.lastVoiceResponse);
-  const { setIsListening, setLastVoiceResponse } = useMimirStore();
+export function VoiceButton({ currentPersonId: _currentPersonId }: VoiceButtonProps) {
+  void _currentPersonId;
+  const {
+    isListening,
+    isSupported,
+    status,
+    interimText,
+    silenceCountdown,
+    toggleSession,
+  } = useVoiceRecorder();
 
-  const speak = useCallback((text: string) => {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
-    window.speechSynthesis.speak(utterance);
-  }, []);
+  const lastSession = useMimirStore((s) => s.lastSession);
 
-  const showResponse = useCallback(
-    (response: string) => {
-      setLastVoiceResponse(response);
-      setShowTooltip(true);
-      speak(response);
-      if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
-      tooltipTimerRef.current = setTimeout(() => {
-        setShowTooltip(false);
-        setLastVoiceResponse(null);
-      }, 4000);
-    },
-    [setLastVoiceResponse, speak]
-  );
+  // Track prev status to detect session-end transition
+  const prevStatusRef = useRef<VoiceStatus>("idle");
+  const [summary, setSummary] = useState<{ utterances: number; words: number } | null>(null);
+  const summaryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const sendQuery = useCallback(
-    async (query: string) => {
-      try {
-        const res = await fetch("/api/voice", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, currentPersonId }),
-        });
-        const data = await res.json();
-        if (data.response) showResponse(data.response);
-      } catch {
-        showResponse("Sorry, I couldn't connect to the server.");
+  useEffect(() => {
+    let immediateTimer: ReturnType<typeof setTimeout> | null = null;
+    if (prevStatusRef.current === "processing" && status === "idle") {
+      if (lastSession && lastSession.wordCount > 0) {
+        const nextSummary = {
+          utterances: lastSession.transcript.length,
+          words: lastSession.wordCount,
+        };
+        immediateTimer = setTimeout(() => {
+          setSummary(nextSummary);
+          if (summaryTimerRef.current) clearTimeout(summaryTimerRef.current);
+          summaryTimerRef.current = setTimeout(() => setSummary(null), 3000);
+        }, 0);
       }
-    },
-    [currentPersonId, showResponse]
-  );
-
-  const startListening = useCallback(() => {
-    const SpeechRecognitionCtor =
-      (window as unknown as Window).SpeechRecognition ??
-      (window as unknown as Window).webkitSpeechRecognition;
-
-    if (!SpeechRecognitionCtor) {
-      showResponse("Speech recognition is not supported in this browser.");
-      return;
     }
-
-    const recognition = new SpeechRecognitionCtor();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-
-    recognition.onstart = () => setIsListening(true);
-
-    recognition.onresult = (event) => {
-      const text = event.results[0]?.[0]?.transcript ?? "";
-      setTranscript(text);
-      sendQuery(text);
+    prevStatusRef.current = status;
+    return () => {
+      if (immediateTimer) clearTimeout(immediateTimer);
     };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-  }, [setIsListening, sendQuery, showResponse]);
-
-  const stopListening = useCallback(() => {
-    recognitionRef.current?.stop();
-    setIsListening(false);
-  }, [setIsListening]);
-
-  const handleClick = useCallback(() => {
-    if (isListening) {
-      stopListening();
-    } else {
-      startListening();
-    }
-  }, [isListening, startListening, stopListening]);
+  }, [status, lastSession]);
 
   useEffect(() => {
     return () => {
-      if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
-      recognitionRef.current?.stop();
+      if (summaryTimerRef.current) clearTimeout(summaryTimerRef.current);
     };
   }, []);
 
+  const showTooltip =
+    status !== "idle" || summary !== null;
+
+  // Waveform freezes during silence / processing
+  const waveformActive = status === "listening" || status === "speaking";
+
+  const tooltipText = (() => {
+    if (summary) return `Recorded ${summary.utterances} utterance${summary.utterances !== 1 ? "s" : ""} · ${summary.words} words`;
+    if (status === "processing") return "Saving session...";
+    if (status === "silence") return `Stopping in ${silenceCountdown ?? 0}s...`;
+    if (status === "speaking" && interimText) return interimText.slice(0, 120);
+    if (status === "speaking") return "Speech detected...";
+    if (status === "listening") return "Listening...";
+    return null;
+  })();
+
+  const tooltipAmber = status === "silence";
+
   return (
     <div className="fixed bottom-8 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-3">
-      {/* Response tooltip */}
-      {showTooltip && lastVoiceResponse && (
+      {/* Tooltip card */}
+      {showTooltip && tooltipText && (
         <Card className="card-glass max-w-xs animate-in fade-in slide-in-from-bottom-2">
           <CardContent className="px-4 py-3">
-            <p className="text-xs leading-relaxed text-white/80">{lastVoiceResponse}</p>
-            {transcript && (
-              <p className="mt-1 font-mono text-[10px] text-white/35">
-                &ldquo;{transcript}&rdquo;
-              </p>
-            )}
+            <p
+              className={cn(
+                "text-xs leading-relaxed",
+                tooltipAmber ? "text-amber-400" : "text-white/80"
+              )}
+            >
+              {tooltipText}
+            </p>
           </CardContent>
         </Card>
       )}
@@ -140,11 +108,17 @@ export function VoiceButton({ currentPersonId }: VoiceButtonProps) {
           {WAVE_DELAYS.map((delay, i) => (
             <div
               key={i}
-              className="wave-bar w-1 rounded-full bg-[rgba(120,200,255,0.75)]"
+              className={cn(
+                "w-1 rounded-full",
+                waveformActive
+                  ? "wave-bar bg-[rgba(120,200,255,0.75)]"
+                  : "bg-[rgba(120,200,255,0.4)]"
+              )}
               style={{
-                height: "24px",
+                height: waveformActive ? "24px" : "3px",
                 animationDelay: delay,
                 transformOrigin: "bottom",
+                transition: "height 0.2s ease",
               }}
             />
           ))}
@@ -154,20 +128,42 @@ export function VoiceButton({ currentPersonId }: VoiceButtonProps) {
       {/* Mic button */}
       <Button
         size="icon"
-        onClick={handleClick}
+        onClick={toggleSession}
+        disabled={!isSupported || status === "processing"}
         aria-label={isListening ? "Stop listening" : "Start voice input"}
         className={cn(
           "btn-glass size-14 rounded-full transition-all duration-200",
-          isListening && "pulse-ring border-[rgba(120,200,255,0.5)]"
+          (status === "listening" || status === "speaking") && "pulse-ring",
+          status === "silence" && "border-[rgba(255,180,60,0.5)]"
         )}
+        style={{
+          borderColor: borderForStatus(status),
+        }}
       >
-        {isListening ? (
+        {status === "processing" ? (
+          /* Spinner */
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className="size-5 animate-spin text-white/60"
+          >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+        ) : isListening ? (
           /* Stop icon */
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 24 24"
             fill="currentColor"
-            className="size-5 text-[rgba(120,200,255,0.9)]"
+            className={cn(
+              "size-5",
+              status === "silence"
+                ? "text-amber-400"
+                : "text-[rgba(120,200,255,0.9)]"
+            )}
           >
             <rect x="6" y="6" width="12" height="12" rx="2" />
           </svg>
@@ -184,6 +180,13 @@ export function VoiceButton({ currentPersonId }: VoiceButtonProps) {
           </svg>
         )}
       </Button>
+
+      {/* Unsupported browser notice */}
+      {!isSupported && (
+        <p className="text-[10px] text-white/40">
+          Voice not supported in this browser
+        </p>
+      )}
     </div>
   );
 }
